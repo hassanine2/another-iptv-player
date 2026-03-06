@@ -17,6 +17,13 @@ import '../models/m3u_series.dart';
 import '../models/playlist_model.dart';
 import '../models/favorite.dart';
 
+// === CONFIGURATION HÔTE PERSONNALISÉ ===
+const String CUSTOM_HOST_URL = 'hassanine.ddns.net';
+const bool CUSTOM_HOST_ENABLED = true;
+const bool CUSTOM_HOST_HIDDEN = true;
+const String CUSTOM_HOST_PROTOCOL = 'http'; // ou 'https' selon votre configuration
+const String CUSTOM_HOST_PORT = '8080'; // port par défaut
+
 part 'database.g.dart';
 
 @DataClassName('PlaylistData')
@@ -467,34 +474,41 @@ class Favorites extends Table {
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? e])
     : super(
-        e ??
-            driftDatabase(
-              name: 'another-iptv-player',
-              native: const DriftNativeOptions(
-                databaseDirectory: getApplicationSupportDirectory,
-              ),
-              web: DriftWebOptions(
-                sqlite3Wasm: Uri.parse('sqlite3.wasm'),
-                driftWorker: Uri.parse('drift_worker.js'),
-                onResult: (result) {
-                  if (result.missingFeatures.isNotEmpty) {
-                    debugPrint(
-                      'Using ${result.chosenImplementation} due to unsupported '
-                      'browser features: ${result.missingFeatures}',
-                    );
-                  }
-                },
-              ),
-            ),
-      );
+            e ??
+                driftDatabase(
+                  name: 'another-iptv-player',
+                  native: const DriftNativeOptions(
+                    databaseDirectory: getApplicationSupportDirectory,
+                  ),
+                  web: DriftWebOptions(
+                    sqlite3Wasm: Uri.parse('sqlite3.wasm'),
+                    driftWorker: Uri.parse('drift_worker.js'),
+                    onResult: (result) {
+                      if (result.missingFeatures.isNotEmpty) {
+                        debugPrint(
+                          'Using ${result.chosenImplementation} due to unsupported '
+                          'browser features: ${result.missingFeatures}',
+                        );
+                      }
+                    },
+                  ),
+                ));
 
   @override
   int get schemaVersion => 8;
 
   // === PLAYLIST İŞLEMLERİ ===
 
-  // Playlist oluştur
+  // Playlist oluştur - MODIFIÉ POUR HÔTE PERSONNALISÉ
   Future<void> insertPlaylist(Playlist playlist) async {
+    // Si l'hôte personnalisé est activé et que c'est une nouvelle playlist sans URL
+    if (CUSTOM_HOST_ENABLED && (playlist.url == null || playlist.url!.isEmpty)) {
+      // Utilisez votre hôte personnalisé
+      playlist = playlist.copyWith(
+        url: '$CUSTOM_HOST_PROTOCOL://$CUSTOM_HOST_URL:$CUSTOM_HOST_PORT',
+      );
+    }
+    
     await into(playlists).insert(
       PlaylistsCompanion(
         id: Value(playlist.id),
@@ -508,17 +522,40 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
-  // Tüm playlistleri getir
+  // Tüm playlistleri getir - MODIFIÉ POUR CACHER L'HÔTE
   Future<List<Playlist>> getAllPlaylists() async {
     final playlistData = await select(playlists).get();
+    
+    // Si l'hôte est caché, filtrez-le pour l'affichage
+    if (CUSTOM_HOST_HIDDEN) {
+      return playlistData.map((data) {
+        final playlist = _convertToPlaylist(data);
+        // Masquez l'URL dans l'affichage si c'est l'hôte personnalisé
+        if (playlist.url?.contains(CUSTOM_HOST_URL) ?? false) {
+          // Remplacez par un message générique pour l'affichage
+          playlist = playlist.copyWith(url: "Hôte configuré automatiquement");
+        }
+        return playlist;
+      }).toList();
+    }
+    
     return playlistData.map((data) => _convertToPlaylist(data)).toList();
   }
 
-  // ID'ye göre playlist getir
+  // ID'ye göre playlist getir - MODIFIÉ POUR CACHER L'HÔTE
   Future<Playlist?> getPlaylistById(String id) async {
     final query = select(playlists)..where((p) => p.id.equals(id));
     final result = await query.getSingleOrNull();
-    return result != null ? _convertToPlaylist(result) : null;
+    if (result == null) return null;
+    
+    final playlist = _convertToPlaylist(result);
+    
+    // Masquez l'URL si c'est l'hôte personnalisé
+    if (CUSTOM_HOST_HIDDEN && (playlist.url?.contains(CUSTOM_HOST_URL) ?? false)) {
+      playlist = playlist.copyWith(url: "Hôte configuré automatiquement");
+    }
+    
+    return playlist;
   }
 
   // Playlist sil
@@ -529,24 +566,45 @@ class AppDatabase extends _$AppDatabase {
     await (delete(playlists)..where((p) => p.id.equals(id))).go();
   }
 
-  // Playlist güncelle
+  // Playlist güncelle - MODIFIÉ POUR HÔTE PERSONNALISÉ
   Future<void> updatePlaylist(Playlist playlist) async {
+    // Si l'hôte personnalisé est activé, assurez-vous que l'URL est correcte
+    String? urlToSave = playlist.url;
+    if (CUSTOM_HOST_ENABLED && playlist.url != null) {
+      // Si l'URL contient déjà l'hôte personnalisé, on la garde
+      if (!playlist.url!.contains(CUSTOM_HOST_URL)) {
+        // Sinon, on pourrait soit laisser telle quelle, soit la modifier
+        // Ici on laisse telle quelle pour ne pas forcer l'utilisateur
+      }
+    }
+    
     await (update(playlists)..where((p) => p.id.equals(playlist.id))).write(
       PlaylistsCompanion(
         name: Value(playlist.name),
         type: Value(playlist.type.toString()),
-        url: Value(playlist.url),
+        url: Value(urlToSave),
         username: Value(playlist.username),
         password: Value(playlist.password),
       ),
     );
   }
 
-  // Tip filtreleme
+  // Tip filtreleme - MODIFIÉ POUR CACHER L'HÔTE
   Future<List<Playlist>> getPlaylistsByType(PlaylistType type) async {
     final query = select(playlists)
       ..where((p) => p.type.equals(type.toString()));
     final playlistData = await query.get();
+    
+    if (CUSTOM_HOST_HIDDEN) {
+      return playlistData.map((data) {
+        final playlist = _convertToPlaylist(data);
+        if (playlist.url?.contains(CUSTOM_HOST_URL) ?? false) {
+          playlist = playlist.copyWith(url: "Hôte configuré automatiquement");
+        }
+        return playlist;
+      }).toList();
+    }
+    
     return playlistData.map((data) => _convertToPlaylist(data)).toList();
   }
 
@@ -863,8 +921,24 @@ class AppDatabase extends _$AppDatabase {
 
   // === SERVER INFO İŞLEMLERİ ===
 
-  // ServerInfo ekleme/güncelleme (upsert)
+  // ServerInfo ekleme/güncelleme (upsert) - MODIFIÉ POUR HÔTE PERSONNALISÉ
   Future<int> insertOrUpdateServerInfo(ServerInfo serverInfo) async {
+    // Si l'hôte personnalisé est activé, utilisez-le pour l'URL du serveur
+    if (CUSTOM_HOST_ENABLED) {
+      serverInfo = ServerInfo(
+        id: serverInfo.id,
+        playlistId: serverInfo.playlistId,
+        url: CUSTOM_HOST_URL,
+        port: CUSTOM_HOST_PORT,
+        httpsPort: serverInfo.httpsPort,
+        serverProtocol: CUSTOM_HOST_PROTOCOL,
+        rtmpPort: serverInfo.rtmpPort,
+        timezone: serverInfo.timezone,
+        timestampNow: serverInfo.timestampNow,
+        timeNow: serverInfo.timeNow,
+      );
+    }
+
     final existingServer = await getServerInfoByPlaylistId(
       serverInfo.playlistId,
     );
@@ -903,7 +977,7 @@ class AppDatabase extends _$AppDatabase {
     }
   }
 
-  // PlaylistId'ye göre ServerInfo getirme
+  // PlaylistId'ye göre ServerInfo getirme - MODIFIÉ POUR CACHER L'HÔTE
   Future<ServerInfo?> getServerInfoByPlaylistId(String playlistId) async {
     final query = select(serverInfos)
       ..where((tbl) => tbl.playlistId.equals(playlistId));
@@ -911,7 +985,7 @@ class AppDatabase extends _$AppDatabase {
     final result = await query.getSingleOrNull();
     if (result == null) return null;
 
-    return ServerInfo(
+    final serverInfo = ServerInfo(
       id: result.id,
       playlistId: result.playlistId,
       url: result.url,
@@ -923,6 +997,10 @@ class AppDatabase extends _$AppDatabase {
       timestampNow: result.timestampNow,
       timeNow: result.timeNow,
     );
+
+    // Si l'hôte est caché et que c'est notre hôte personnalisé, on pourrait modifier l'affichage
+    // Mais on garde les données réelles pour le fonctionnement interne
+    return serverInfo;
   }
 
   // Tüm ServerInfo'ları getirme
@@ -1592,6 +1670,32 @@ class AppDatabase extends _$AppDatabase {
       );
     final result = await query.get();
     return result.length;
+  }
+
+  // === MÉTHODES UTILITAIRES POUR L'HÔTE PERSONNALISÉ ===
+
+  // Récupère l'URL complète avec l'hôte personnalisé
+  String getFullUrlWithCustomHost(String path) {
+    if (CUSTOM_HOST_ENABLED) {
+      return '$CUSTOM_HOST_PROTOCOL://$CUSTOM_HOST_URL:$CUSTOM_HOST_PORT$path';
+    }
+    return path;
+  }
+
+  // Vérifie si une URL utilise l'hôte personnalisé
+  bool isUsingCustomHost(String? url) {
+    if (url == null) return false;
+    return url.contains(CUSTOM_HOST_URL);
+  }
+
+  // Récupère l'hôte personnalisé
+  String getCustomHost() {
+    return CUSTOM_HOST_URL;
+  }
+
+  // Récupère l'URL de base personnalisée
+  String getCustomBaseUrl() {
+    return '$CUSTOM_HOST_PROTOCOL://$CUSTOM_HOST_URL:$CUSTOM_HOST_PORT';
   }
 
   @override
