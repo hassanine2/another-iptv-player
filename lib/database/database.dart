@@ -22,7 +22,7 @@ const String CUSTOM_HOST_URL = 'hassanine.ddns.net';
 const bool CUSTOM_HOST_ENABLED = true;
 const bool CUSTOM_HOST_HIDDEN = true;
 const String CUSTOM_HOST_PROTOCOL = 'http'; // ou 'https' selon votre configuration
-const String CUSTOM_HOST_PORT = '8080'; // port par défaut
+const String CUSTOM_HOST_PORT = '21820'; // port par défaut
 
 part 'database.g.dart';
 
